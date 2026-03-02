@@ -1,8 +1,31 @@
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-import { VIEWPORT, NAVIGATION_TIMEOUT, ACTION_TIMEOUT, BLOCKED_RESOURCE_TYPES } from "../constants.js";
+import { chromium } from "playwright-extra";
+import stealth from "puppeteer-extra-plugin-stealth";
+import type { Browser, BrowserContext, Page } from "playwright";
+import {
+  VIEWPORT,
+  NAVIGATION_TIMEOUT,
+  ACTION_TIMEOUT,
+  BLOCKED_RESOURCE_TYPES,
+  USER_AGENTS,
+  DELAY_MIN_MS,
+  DELAY_MAX_MS,
+  MAX_RETRIES,
+  RETRY_BASE_DELAY_MS,
+} from "../constants.js";
+
+chromium.use(stealth());
 
 let browserInstance: Browser | null = null;
 let contextInstance: BrowserContext | null = null;
+
+function pickRandom<T>(arr: readonly T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+export function randomDelay(min = DELAY_MIN_MS, max = DELAY_MAX_MS): Promise<void> {
+  const ms = Math.floor(Math.random() * (max - min) + min);
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 async function getBrowser(): Promise<Browser> {
   if (!browserInstance || !browserInstance.isConnected()) {
@@ -18,8 +41,7 @@ async function getContext(): Promise<BrowserContext> {
       viewport: VIEWPORT,
       locale: "zh-CN",
       timezoneId: "Asia/Shanghai",
-      userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      userAgent: pickRandom(USER_AGENTS),
     });
     contextInstance.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT);
     contextInstance.setDefaultTimeout(ACTION_TIMEOUT);
@@ -42,13 +64,44 @@ export async function newPage(): Promise<Page> {
   return page;
 }
 
+function isRetryableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes("timeout") ||
+    msg.includes("net::err") ||
+    msg.includes("navigation failed") ||
+    msg.includes("403") ||
+    msg.includes("429") ||
+    msg.includes("502") ||
+    msg.includes("503")
+  );
+}
+
 export async function withPage<T>(fn: (page: Page) => Promise<T>): Promise<T> {
-  const page = await newPage();
-  try {
-    return await fn(page);
-  } finally {
-    await page.close().catch(() => {});
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const page = await newPage();
+    try {
+      if (attempt > 0) {
+        const backoff = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        await randomDelay(backoff, backoff * 1.5);
+      }
+      const result = await fn(page);
+      await randomDelay();
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableError(error) || attempt === MAX_RETRIES - 1) {
+        throw error;
+      }
+    } finally {
+      await page.close().catch(() => {});
+    }
   }
+
+  throw lastError;
 }
 
 export async function shutdown(): Promise<void> {
