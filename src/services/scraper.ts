@@ -98,3 +98,10 @@ export function formatError(error: unknown): string {
   }
   return `Error: ${String(error)}`;
 }
+
+export function errorResult(error: unknown) {
+  return {
+    isError: true as const,
+    content: [{ type: "text" as const, text: formatError(error) }],
+  };
+}

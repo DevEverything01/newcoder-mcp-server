@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+const ResponseFormatSchema = z
+  .enum(["markdown", "json"])
+  .default("markdown")
+  .describe("输出格式: 'markdown' 人类可读, 'json' 机器可解析");
+
 export const SearchInputSchema = z.object({
   query: z
     .string()
@@ -16,6 +21,7 @@ export const SearchInputSchema = z.object({
     .min(1)
     .default(1)
     .describe("页码，从1开始"),
+  response_format: ResponseFormatSchema,
 }).strict();
 
 export const ListProblemsInputSchema = z.object({
@@ -37,6 +43,7 @@ export const ListProblemsInputSchema = z.object({
     .min(1)
     .default(1)
     .describe("页码，从1开始"),
+  response_format: ResponseFormatSchema,
 }).strict();
 
 export const GetProblemInputSchema = z.object({
@@ -44,6 +51,7 @@ export const GetProblemInputSchema = z.object({
     .string()
     .min(1)
     .describe("题目ID，例如 '1001'"),
+  response_format: ResponseFormatSchema,
 }).strict();
 
 export const GetProblemSolutionsInputSchema = z.object({
@@ -57,6 +65,7 @@ export const GetProblemSolutionsInputSchema = z.object({
     .min(1)
     .default(1)
     .describe("页码，从1开始"),
+  response_format: ResponseFormatSchema,
 }).strict();
 
 export const ListTopicProblemsInputSchema = z.object({
@@ -70,6 +79,7 @@ export const ListTopicProblemsInputSchema = z.object({
     .min(1)
     .default(1)
     .describe("页码，从1开始"),
+  response_format: ResponseFormatSchema,
 }).strict();
 
 export const GetDiscussionInputSchema = z.object({
@@ -77,6 +87,7 @@ export const GetDiscussionInputSchema = z.object({
     .string()
     .min(1)
     .describe("讨论帖的完整URL或ID。支持格式: 完整URL(https://www.nowcoder.com/discuss/123), discuss ID(123), feed UUID"),
+  response_format: ResponseFormatSchema,
 }).strict();
 
 export const BrowseInterviewInputSchema = z.object({
@@ -90,6 +101,7 @@ export const BrowseInterviewInputSchema = z.object({
     .min(1)
     .default(1)
     .describe("页码，从1开始"),
+  response_format: ResponseFormatSchema,
 }).strict();
 
 export type SearchInput = z.infer<typeof SearchInputSchema>;

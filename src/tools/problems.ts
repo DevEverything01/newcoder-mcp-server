@@ -15,10 +15,10 @@ import {
   extractList,
   getPageMainContent,
   truncateIfNeeded,
-  formatError,
+  errorResult,
 } from "../services/scraper.js";
 import { NOWCODER_AC_URL, NOWCODER_BASE_URL } from "../constants.js";
-import type { ProblemListItem, ProblemDetail, ProblemSolution, TopicProblem } from "../types.js";
+import type { ProblemListItem, ProblemDetail, ProblemSolution, TopicProblem, PaginatedResult } from "../types.js";
 
 export function registerProblemTools(server: McpServer): void {
   // --- nowcoder_list_problems ---
@@ -32,9 +32,20 @@ Args:
   - keyword (string): 搜索关键词（可选）
   - difficulty (number): 难度 0(全部) 1-5(星级)
   - page (number): 页码
+  - response_format (string): 输出格式 - "markdown"(默认, 人类可读) 或 "json"(机器可解析)
 
 Returns:
-  题目列表，包含 ID、标题、难度、通过率、标签`,
+  题目列表，包含 ID、标题、难度、通过率、标签
+
+Examples:
+  - 浏览全部题目: { "page": 1 }
+  - 按难度筛选: { "difficulty": 3, "page": 1 }
+  - 搜索关键词(JSON格式): { "keyword": "二叉树", "response_format": "json" }
+
+Error Handling:
+  - 页面加载超时时返回超时提示
+  - 网络连接失败时提示检查网络
+  - 无匹配题目时建议调整筛选条件`,
       inputSchema: ListProblemsInputSchema,
       annotations: {
         readOnlyHint: true,
@@ -77,6 +88,17 @@ Returns:
           return { content: [{ type: "text", text: "未找到题目。请调整筛选条件后重试。" }] };
         }
 
+        const paginated: PaginatedResult<ProblemListItem> = {
+          items: problems,
+          page: params.page,
+          count: problems.length,
+          has_more: problems.length > 0,
+        };
+
+        if (params.response_format === "json") {
+          return { content: [{ type: "text", text: JSON.stringify(paginated, null, 2) }] };
+        }
+
         const lines = [`# 编程题库 (第${params.page}页)\n`];
         if (params.keyword) lines.push(`关键词: ${params.keyword}\n`);
         lines.push("| ID | 标题 | 难度 | 通过率 | 标签 |");
@@ -86,7 +108,7 @@ Returns:
         }
         return { content: [{ type: "text", text: truncateIfNeeded(lines.join("\n")) }] };
       } catch (error) {
-        return { content: [{ type: "text", text: formatError(error) }] };
+        return errorResult(error);
       }
     }
   );
@@ -100,9 +122,18 @@ Returns:
 
 Args:
   - problemId (string): 题目ID
+  - response_format (string): 输出格式 - "markdown"(默认) 或 "json"
 
 Returns:
-  Markdown 格式的题目详情`,
+  题目详情，包含标题、时间/内存限制、题目描述
+
+Examples:
+  - 获取题目: { "problemId": "1001" }
+  - JSON格式: { "problemId": "1001", "response_format": "json" }
+
+Error Handling:
+  - 题目不存在时返回错误提示
+  - 页面加载超时时返回超时提示`,
       inputSchema: GetProblemInputSchema,
       annotations: {
         readOnlyHint: true,
@@ -151,6 +182,10 @@ Returns:
           } satisfies ProblemDetail;
         });
 
+        if (params.response_format === "json") {
+          return { content: [{ type: "text", text: JSON.stringify(detail, null, 2) }] };
+        }
+
         const lines = [`# ${detail.title}\n`];
         lines.push(`- 题目ID: ${detail.id}`);
         if (detail.timeLimit) lines.push(`- 时间限制: ${detail.timeLimit}`);
@@ -160,7 +195,7 @@ Returns:
 
         return { content: [{ type: "text", text: truncateIfNeeded(lines.join("\n")) }] };
       } catch (error) {
-        return { content: [{ type: "text", text: formatError(error) }] };
+        return errorResult(error);
       }
     }
   );
@@ -175,9 +210,18 @@ Returns:
 Args:
   - problemId (string): 题目ID
   - page (number): 页码
+  - response_format (string): 输出格式 - "markdown"(默认) 或 "json"
 
 Returns:
-  题解列表，包含作者、标题、摘要、点赞数`,
+  题解列表，包含作者、标题、摘要、点赞数
+
+Examples:
+  - 获取题解: { "problemId": "1001", "page": 1 }
+  - JSON格式: { "problemId": "1001", "response_format": "json" }
+
+Error Handling:
+  - 题目无题解时返回空结果提示
+  - 页面加载超时时返回超时提示`,
       inputSchema: GetProblemSolutionsInputSchema,
       annotations: {
         readOnlyHint: true,
@@ -222,6 +266,17 @@ Returns:
           return { content: [{ type: "text", text: "该题目暂无题解。" }] };
         }
 
+        const paginated: PaginatedResult<ProblemSolution> = {
+          items: solutions,
+          page: params.page,
+          count: solutions.length,
+          has_more: solutions.length > 0,
+        };
+
+        if (params.response_format === "json") {
+          return { content: [{ type: "text", text: JSON.stringify(paginated, null, 2) }] };
+        }
+
         const lines = [`# 题目 ${params.problemId} 的题解 (第${params.page}页)\n`];
         for (const s of solutions) {
           lines.push(`## ${s.title || "(无标题)"}`);
@@ -233,7 +288,7 @@ Returns:
         }
         return { content: [{ type: "text", text: truncateIfNeeded(lines.join("\n")) }] };
       } catch (error) {
-        return { content: [{ type: "text", text: formatError(error) }] };
+        return errorResult(error);
       }
     }
   );
@@ -260,9 +315,18 @@ Returns:
 Args:
   - topicId (string): 专题ID
   - page (number): 页码
+  - response_format (string): 输出格式 - "markdown"(默认) 或 "json"
 
 Returns:
-  专题题目列表，包含编号、标题、难度、通过率`,
+  专题题目列表，包含编号、标题、难度、通过率
+
+Examples:
+  - 面试TOP101: { "topicId": "295", "page": 1 }
+  - SQL篇(JSON格式): { "topicId": "199", "response_format": "json" }
+
+Error Handling:
+  - 专题不存在时返回错误提示
+  - 页面加载超时时返回超时提示`,
       inputSchema: ListTopicProblemsInputSchema,
       annotations: {
         readOnlyHint: true,
@@ -332,6 +396,17 @@ Returns:
           result.problems = fallbackResult;
         }
 
+        const paginated: PaginatedResult<TopicProblem> = {
+          items: result.problems,
+          page: params.page,
+          count: result.problems.length,
+          has_more: result.problems.length > 0,
+        };
+
+        if (params.response_format === "json") {
+          return { content: [{ type: "text", text: JSON.stringify(paginated, null, 2) }] };
+        }
+
         const lines = [`# ${result.topicTitle}\n`];
         lines.push("| # | 标题 | 难度 | 通过率 |");
         lines.push("|---|---|---|---|");
@@ -341,7 +416,7 @@ Returns:
 
         return { content: [{ type: "text", text: truncateIfNeeded(lines.join("\n")) }] };
       } catch (error) {
-        return { content: [{ type: "text", text: formatError(error) }] };
+        return errorResult(error);
       }
     }
   );

@@ -1,9 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SearchInputSchema, type SearchInput } from "../schemas/index.js";
 import { withPage } from "../services/browser.js";
-import { truncateIfNeeded, formatError } from "../services/scraper.js";
+import { truncateIfNeeded, errorResult } from "../services/scraper.js";
 import { NOWCODER_BASE_URL } from "../constants.js";
-import type { SearchResult } from "../types.js";
+import type { SearchResult, PaginatedResult } from "../types.js";
 
 export function registerSearchTools(server: McpServer): void {
   server.registerTool(
@@ -16,9 +16,20 @@ Args:
   - query (string): 搜索关键词
   - type (string): 搜索类型 - "all"(综合), "discuss"(讨论/面经), "problem"(题库), "job"(职位)
   - page (number): 页码，从1开始
+  - response_format (string): 输出格式 - "markdown"(默认, 人类可读) 或 "json"(机器可解析)
 
 Returns:
-  搜索结果列表，包含标题、链接、摘要、作者、时间`,
+  搜索结果列表，包含标题、链接、摘要、作者、时间
+
+Examples:
+  - 搜索Java面经: { "query": "Java面经", "type": "discuss", "page": 1 }
+  - 搜索算法题(JSON格式): { "query": "二叉树", "type": "problem", "response_format": "json" }
+  - 综合搜索: { "query": "字节跳动", "type": "all", "page": 2 }
+
+Error Handling:
+  - 页面加载超时时会返回友好的超时提示
+  - 网络连接失败时会提示检查网络
+  - 无搜索结果时会建议更换关键词`,
       inputSchema: SearchInputSchema,
       annotations: {
         readOnlyHint: true,
@@ -106,9 +117,22 @@ Returns:
           return true;
         });
 
+        const paginated: PaginatedResult<SearchResult> = {
+          items: validResults,
+          page: params.page,
+          count: validResults.length,
+          has_more: validResults.length > 0,
+        };
+
         if (validResults.length === 0) {
           return {
             content: [{ type: "text", text: `未找到与 "${params.query}" 相关的结果。请尝试其他关键词。` }],
+          };
+        }
+
+        if (params.response_format === "json") {
+          return {
+            content: [{ type: "text", text: JSON.stringify(paginated, null, 2) }],
           };
         }
 
@@ -124,7 +148,7 @@ Returns:
         const text = truncateIfNeeded(lines.join("\n"));
         return { content: [{ type: "text", text }] };
       } catch (error) {
-        return { content: [{ type: "text", text: formatError(error) }] };
+        return errorResult(error);
       }
     }
   );

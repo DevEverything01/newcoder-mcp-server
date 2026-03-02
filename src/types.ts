@@ -66,3 +66,10 @@ export interface HotTopic {
   summary: string;
   heat: string;
 }
+
+export interface PaginatedResult<T> {
+  items: T[];
+  page: number;
+  count: number;
+  has_more: boolean;
+}

@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { GetDiscussionInputSchema, type GetDiscussionInput } from "../schemas/index.js";
 import { withPage } from "../services/browser.js";
-import { truncateIfNeeded, formatError } from "../services/scraper.js";
+import { truncateIfNeeded, errorResult } from "../services/scraper.js";
 import { NOWCODER_BASE_URL } from "../constants.js";
 
 function resolveDiscussionUrl(input: string): string {
@@ -27,9 +27,18 @@ Args:
     例如: "https://www.nowcoder.com/discuss/353154004265934848"
          "353154004265934848"
          "https://www.nowcoder.com/feed/main/detail/xxxx"
+  - response_format ("markdown" | "json"): 返回格式，默认 "markdown"
 
 Returns:
-  Markdown 格式的帖子内容，包含标题、作者、时间、正文`,
+  帖子内容，包含标题、作者、时间、正文、标签、链接
+
+Examples:
+  - 获取帖子详情 (markdown): { "url": "353154004265934848" }
+  - 获取帖子详情 (json): { "url": "353154004265934848", "response_format": "json" }
+
+Error Handling:
+  - 页面加载超时时返回超时错误提示
+  - 网络连接失败时返回网络错误提示`,
       inputSchema: GetDiscussionInputSchema,
       annotations: {
         readOnlyHint: true,
@@ -41,6 +50,7 @@ Returns:
     async (params: GetDiscussionInput) => {
       try {
         const url = resolveDiscussionUrl(params.url);
+        const responseFormat = params.response_format ?? "markdown";
 
         const detail = await withPage(async (page) => {
           await page.goto(url, { waitUntil: "networkidle" });
@@ -85,6 +95,19 @@ Returns:
           });
         });
 
+        if (responseFormat === "json") {
+          const structured = {
+            title: detail.title || "",
+            author: detail.author || "",
+            time: detail.time || "",
+            content: detail.content || "",
+            tags: detail.tags,
+            url,
+          };
+          return { content: [{ type: "text", text: truncateIfNeeded(JSON.stringify(structured, null, 2)) }] };
+        }
+
+        // Default: markdown format
         const lines: string[] = [];
         if (detail.title) lines.push(`# ${detail.title}\n`);
         if (detail.author) lines.push(`- 作者: ${detail.author}`);
@@ -96,7 +119,7 @@ Returns:
 
         return { content: [{ type: "text", text: truncateIfNeeded(lines.join("\n")) }] };
       } catch (error) {
-        return { content: [{ type: "text", text: formatError(error) }] };
+        return errorResult(error);
       }
     }
   );
@@ -109,7 +132,15 @@ Returns:
       description: `获取牛客网当前热门讨论和话题。
 
 Returns:
-  热门话题列表，包含标题、链接、摘要`,
+  热门话题列表，包含标题和链接（最多20条）
+
+Examples:
+  - 获取热门内容: 无需参数，直接调用即可
+
+Error Handling:
+  - 页面加载超时时返回超时错误提示
+  - 网络连接失败时返回网络错误提示
+  - 无热门内容时返回空结果提示`,
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -160,7 +191,7 @@ Returns:
         }
         return { content: [{ type: "text", text: truncateIfNeeded(lines.join("\n")) }] };
       } catch (error) {
-        return { content: [{ type: "text", text: formatError(error) }] };
+        return errorResult(error);
       }
     }
   );

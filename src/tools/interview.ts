@@ -1,9 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { BrowseInterviewInputSchema, type BrowseInterviewInput } from "../schemas/index.js";
 import { withPage } from "../services/browser.js";
-import { waitForContent, extractList, truncateIfNeeded, formatError } from "../services/scraper.js";
+import { waitForContent, extractList, truncateIfNeeded, errorResult } from "../services/scraper.js";
 import { NOWCODER_BASE_URL } from "../constants.js";
-import type { InterviewPost } from "../types.js";
+import type { InterviewPost, PaginatedResult } from "../types.js";
 
 export function registerInterviewTools(server: McpServer): void {
   server.registerTool(
@@ -14,10 +14,24 @@ export function registerInterviewTools(server: McpServer): void {
 
 Args:
   - company (string): 公司名称（可选），如 "字节跳动", "阿里巴巴", "腾讯"
-  - page (number): 页码
+  - page (number): 页码，从1开始
+  - response_format (string): 输出格式 - "markdown"(默认, 人类可读) 或 "json"(机器可解析)
 
 Returns:
-  面经列表，包含标题、公司、作者、摘要、时间`,
+  面经列表，包含标题、公司、作者、摘要、时间
+
+Examples:
+  1. 浏览全部面经第1页:
+     { "page": 1 }
+  2. 按公司筛选面经:
+     { "company": "字节跳动", "page": 1 }
+  3. 获取JSON格式结果用于程序处理:
+     { "company": "阿里巴巴", "page": 2, "response_format": "json" }
+
+Error Handling:
+  - 若页面加载超时，将返回超时错误提示，建议稍后重试
+  - 若网络异常，将返回网络连接失败提示
+  - 若未找到指定公司的面经，将返回空结果提示并建议更换关键词`,
       inputSchema: BrowseInterviewInputSchema,
       annotations: {
         readOnlyHint: true,
@@ -90,6 +104,17 @@ Returns:
           return { content: [{ type: "text", text: msg }] };
         }
 
+        const paginated: PaginatedResult<InterviewPost> = {
+          items: validResults,
+          page: params.page,
+          count: validResults.length,
+          has_more: validResults.length > 0,
+        };
+
+        if (params.response_format === "json") {
+          return { content: [{ type: "text", text: JSON.stringify(paginated, null, 2) }] };
+        }
+
         const heading = params.company ? `# ${params.company} 面经` : "# 面经浏览";
         const lines = [`${heading} (第${params.page}页)\n`];
         for (const r of validResults) {
@@ -103,7 +128,7 @@ Returns:
         }
         return { content: [{ type: "text", text: truncateIfNeeded(lines.join("\n")) }] };
       } catch (error) {
-        return { content: [{ type: "text", text: formatError(error) }] };
+        return errorResult(error);
       }
     }
   );

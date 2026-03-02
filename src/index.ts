@@ -3,7 +3,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { randomUUID } from "node:crypto";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { readFileSync } from "node:fs";
@@ -39,13 +38,12 @@ async function startHttp(): Promise<void> {
   const port = Number(process.env.PORT) || 3000;
   const host = process.env.HOST || "0.0.0.0";
   const useHttps = process.env.HTTPS === "1" || process.env.TRANSPORT === "https";
-
-  const sessions = new Map<string, { server: McpServer; transport: StreamableHTTPServerTransport }>();
+  const allowedOrigins = process.env.ALLOWED_ORIGINS || "*";
 
   const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigins);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id, Accept");
     res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
@@ -58,7 +56,7 @@ async function startHttp(): Promise<void> {
 
     if (url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", sessions: sessions.size }));
+      res.end(JSON.stringify({ status: "ok" }));
       return;
     }
 
@@ -68,37 +66,28 @@ async function startHttp(): Promise<void> {
       return;
     }
 
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-
-    if (sessionId && sessions.has(sessionId)) {
-      const session = sessions.get(sessionId)!;
-      await session.transport.handleRequest(req, res);
+    if (req.method === "GET" || req.method === "DELETE") {
+      res.writeHead(405, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Method not allowed in stateless mode" }));
       return;
     }
 
-    if (sessionId && !sessions.has(sessionId)) {
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Session not found" }));
-      return;
-    }
+    const body = await new Promise<string>((resolve) => {
+      let data = "";
+      req.on("data", (chunk: Buffer) => (data += chunk.toString()));
+      req.on("end", () => resolve(data));
+    });
+    const jsonBody = JSON.parse(body);
 
     const server = createServer();
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
+      sessionIdGenerator: undefined,
     });
 
-    transport.onclose = () => {
-      const sid = transport.sessionId;
-      if (sid) sessions.delete(sid);
-    };
-
     await server.connect(transport);
-    await transport.handleRequest(req, res);
+    await transport.handleRequest(req, res, jsonBody);
 
-    const sid = transport.sessionId;
-    if (sid) {
-      sessions.set(sid, { server, transport });
-    }
+    res.on("close", () => transport.close());
   };
 
   let server: ReturnType<typeof createHttpServer>;
