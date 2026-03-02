@@ -11,6 +11,7 @@
     "dev": "tsx watch src/index.ts",
     "dev:http": "TRANSPORT=http tsx watch src/index.ts",
     "dev:https": "TRANSPORT=https tsx watch src/index.ts",
+    "test": "tsx --test tests/**/*.test.ts",
     "build": "tsc",
     "clean": "rm -rf dist",
     "postinstall": "npx playwright install chromium"
